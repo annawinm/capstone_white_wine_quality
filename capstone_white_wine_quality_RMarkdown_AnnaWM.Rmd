@@ -1,0 +1,714 @@
+---
+title: "White wine quality model - capstone project"
+author: "Anna Win-Mason"
+date: "29 May 2025"
+output: pdf_document
+bibliography: wine_references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+if (!require(tidyverse)) install.packages('tidyverse')
+library(tidyverse)
+if (!require(caret)) install.packages('caret')
+library(caret)
+if (!require(rpart)) install.packages('rpart')
+library(rpart)
+if (!require(randomForest)) install.packages('randomForest')
+library(randomForest)
+if (!require(knitr)) install.packages('knitr')
+library(knitr)
+if (!require(tinytex)) install.packages('tinytex')
+library(tinytex)
+if (!require(rmarkdown)) install.packages('rmarkdown')
+library(rmarkdown)
+```
+
+# Introduction
+
+This report forms part of the capstone certificate for the professional data science certificate through HarvardX. I have used a dataset of my own choice to explore a machine learning problem using different machine learning algorithms. I was motivated in looking at a chemistry related machine learning problem because of my background in chemical research prior to switching to starting a career in data science. Therefore, I chose to investigate the white wine quality dataset.[@Cortez],[@Cortez_dat] 
+
+The white wine quality dataset contains physicochemical properties of wine plus a quality score. More details about this dataset are provided in the exploratory data analysis section. There are a number of different machine learning projects I could perform with this dataset. I could investigate classification machine learning methods, in which I could wrangle the wine quality dataset to include a category field of 'good' vs 'not good' for each wine. This category could then be determined by setting a quality score threshold for 'good'. However, I have decided to develop a wine quality score predictive model using regression techniques.  
+
+
+An overview of the key steps used in the project:
+
+1. Download and wrangle the white wine quality dataset.
+
+2. Exploratory data analysis to understand the variables and their distributions in the dataset.
+
+3. Create a test set and training set to develop and validate the wine quality prediction score models.
+
+4. Develop a wine quality prediction score model by starting with a regressive baseline algorithm, then explore additional machine learning algorithms in an iterative way to refine towards a final model.
+
+5. Use the root mean square error (RMSE) as a benchmark metric to assess and compare the effectiveness of each algorithm.  
+
+6. Make wine quality score predictions with the final model.
+
+# Methods and analysis
+
+## White wine quality dataset
+
+We start by downloading and preparing the white wine quality dataset for use in developing the machine learning algorithm with the below code. 
+
+```{r wine_dataset_import}
+
+## Import and tidy the white Wine quality dataset
+
+## sourced from https://archive.ics.uci.edu/dataset/186/wine+quality
+
+# dataset citation: P. Cortez, A. Cerdeira, F. Almeida, T. Matos and J. Reis. 
+# Modeling wine preferences by data mining from physicochemical properties. 
+# In Decision Support Systems, Elsevier, 47(4):547-553, 2009.
+
+# import the white wine csv file
+winequal_temp_w <- read_csv("winequality-white.csv")
+
+# use tidyr::separate to separate the one character column into 12 columns of data
+# remove spaces from the column names by adding an underscore, so that there no 
+# problems running the machine learning algorithms
+# (rf had an error when there were spaces in the column names)
+
+winequal_white <- winequal_temp_w %>% 
+  separate(col = `fixed acidity;volatile acidity;citric acid;residual sugar;chlorides;free sulfur dioxide;total sulfur dioxide;density;pH;sulphates;alcohol;quality`, 
+           into = c("fixed_acidity", "volatile_acidity", "citric_acid", 
+                    "residual_sugar", "chlorides", "free_sulfur_dioxide", 
+                    "total_sulfur_dioxide", "density", "pH", "sulphates", 
+                    "alcohol", "quality"), 
+           sep = ";")
+
+# convert from character to integer
+winequal_white <- winequal_white %>% mutate_if(is.character, as.numeric)
+
+```
+
+## Exploratory data analysis of _winequal_white_ dataset
+
+Let's look into the _winequal_white_ dataset in more detail. Each row of data in the _winequal_white_ dataset corresponds to the physiochemical properties and quality score for one white variant of the Portuguese "Vinho Verde" wine.
+
+```{r dim_winequal_white}
+# the number of rows and columns in winequal_white
+dim(winequal_white)
+
+```
+
+
+There are 12 numeric variables for each row of data in _winequal_white_ detailed in table 1. This includes 11 physicochemical attributes of each wine. These attributes provide insights into the chemical composition and physical properties of the wine, which are ultimately responsible for its sensory quality.[@JohnKag] 
+
+Variables           | Definitions
+--------------------|------------------------------------------------------------------------------
+Fixed acidity       | (grams per litre) amount of non-volatile acidity, primarily from tartaric acid. A more acidic wine can influence flavour 
+Volatile acidity    | (grams per litre) amount of acetic acid, at high levels can lead to an unpleasant taste
+Citric acid         | (grams per litre) amount of citric acid, found in grape juice it can add 'freshness' and flavor to wines
+Residual sugar      | (grams per litre) amount of sugar remaining after fermentation stops, plays a crucial role in determining wine sweetness
+Chlorides           | (grams per litre) amount of chloride salts, can influence the wine's salinity and balance 
+Free sulfur dioxide | (milligrams per litre) amount of unbound sulfur dioxide molecules, and is a common preservative, high levels can lead to unpleasant taste
+Total sulfur dioxide| (milligrams per litre) total amount of sulfur dioxide, free and bound forms. Important for maintaining wine quality, but high levels can lead to unpleasant taste
+Density             | (grams per cubic centimetre) measures the mass per unit volume of wine, influenced by factors like alcohol and sugar content. 
+Sulphates           | (grams per litre) amount of sulfate salts, they are naturally present in grapes and can be added. High levels may contribute to a bitter taste in the wine  
+Alcohol             | (volume percentage) amount of alcohol by volume in the wine. Alcohol is a primary factor influencing the wine's flavour, body and complexity. Higher levels generally result in fuller-bodied wines with stronger aromas and flavours
+Quality             | sensory data as an integer score between 0 and 10
+
+Table: Definitions of _winequal_white_ dataset variables, 11 input variables (physicochemical attributes) and 1 output variable (sensory attribute) of white wine.
+
+The summary statistics of each variable in the _winequal_white_ dataset are shown below. Of note is that the quality scores range from 3 to 9, with and average of 5.9. Also the minumum alcohol by volume wine is 8%, and maximum is 14.2%.
+
+```{r summary_winequal_white}
+
+# summary of winequal_white dataset
+summary(winequal_white)
+```
+
+### Data distributions of _winequal_white_
+
+Now we will look at the distributions of a selection of three variables in the _winequal_white_ dataset. First we will visualise the distribution of the actual quality score in the _winequal_white_ dataset (figure 1). Here there are far fewer low quality and high quality wines, with the majority of wines scoring between 5 and 7, approximating a normal distribution around 6. Of note, the quality scores are integer values only, with no half scores.  
+
+```{r qual_distro, fig.width = 4.25, fig.height = 2.75, fig.cap="The distribution of the quality scores per wine in winequal_white", echo=FALSE}
+# histogram of quailty variable in winequal_white
+winequal_white %>%
+  ggplot(aes(quality)) + # x-axis is quality
+  geom_histogram(colour = "black") + # plot histogram
+  scale_x_continuous(n.breaks = 7) + # 7 x-axis marks
+  scale_y_log10(n.breaks = 15) + # make y-axis log base 10, 15 axis marks
+  ggtitle("Distribution of white wine quality") + # plot title
+  ylab("count (log10)") + # y-axis label
+  theme_minimal() + # set minimal theme
+  theme(plot.title = element_text(size = 10), # set the text size of title 
+        axis.title = element_text(size = 8), # set the text size of axis label
+        axis.text = element_text(size = 8)) # set the text size of axis marks
+
+```
+
+Next we'll look at the distribution of the alcohol variable in _winequal_white_ (figure 2). In the description of the dataset, the amount of alcohol is a primary factor influencing taste. The wines in this dataset have an alcohol percentage that does not follow a normal distribution, with the majority of wines falling between about 9 to 12.5%.
+
+
+```{r alcohol_distro, fig.width = 4.25, fig.height = 2.75, fig.cap="The distribution of the alcohol percentage per wine in winequal_white", echo=FALSE}
+
+# histogram of alcohol variable in winequal_white
+winequal_white %>%
+  ggplot(aes(alcohol)) + # x-axis is alcohol
+  geom_histogram(colour = "black", bins = 50) + # plot histogram
+  scale_x_continuous(n.breaks = 10) + # 10 x-axis marks
+  scale_y_continuous(n.breaks = 10) + # 10 y-axis marks
+  ggtitle("Distribution of alcohol") + # plot title
+  xlab("alcohol (% by volume)") + # x-axis label
+  theme_minimal() + # set minimal theme
+  theme(plot.title = element_text(size = 10), # set the text size of title 
+        axis.title = element_text(size = 8), # set the text size of axis label
+        axis.text = element_text(size = 8)) # set the text size of axis marks
+```
+
+The distribution of the density variable in _winequal_white_ is shown in figure 3. The density of wine is affected by alcohol and sugar content. The wines in this dataset have a measure of density with a distribution around 0.994 g/cubic cm, ranging between 0.989 to 1.000 g/cubic cm.
+
+```{r density_distro, fig.width = 4.25, fig.height = 2.75, fig.cap="The distribution of the density per wine in winequal_white", echo=FALSE}
+
+# histogram of density variable in winequal_white  
+winequal_white %>%
+  ggplot(aes(density)) + # x-axis is density
+  geom_histogram(colour = "black", bins = 50) + # plot histogram
+  scale_x_continuous(n.breaks = 10) + # 10 x-axis marks
+  scale_y_continuous(n.breaks = 10) + # 10 y-axis marks
+  ggtitle("Distribution of density") + # plot title
+  xlab("density (g/L)") + # x-axis label
+  theme_minimal() + # set minimal theme
+  theme(plot.title = element_text(size = 10), # set the text size of title 
+        axis.title = element_text(size = 8), # set the text size of axis label
+        axis.text = element_text(size = 8)) # set the text size of axis marks
+
+```
+
+### Data content of _winequal_white_ as motivation for the predicitive quality model
+
+Given that the aim of this project is to develop a machine learning model to predict the quality of wines from using their physicochemical properties, we will endeavor to find the minimum number of predictors or features needed in the model. We can explore which variables have the most influence on the quality score through determining the correlation coefficient of the quality score with each of the 11 variables. In table 2, alcohol has the largest correlation coefficent at 0.436, followed by density at -0.307, then chlorides at -0.210. However, none of the variables has a strong correlation with the quality score as they are all under 0.5.
+
+```{r corr_coeff_table, echo=FALSE}
+# correlation coefficients of the 11 physicochemical properties of wine with the quality score
+fa_cor <-  cor(winequal_white$quality, winequal_white$fixed_acidity)
+va_cor <-  cor(winequal_white$quality, winequal_white$volatile_acidity)
+ca_cor <-  cor(winequal_white$quality, winequal_white$citric_acid)
+rs_cor <-  cor(winequal_white$quality, winequal_white$residual_sugar)
+c_cor <-  cor(winequal_white$quality, winequal_white$chlorides)
+fsd_cor <-  cor(winequal_white$quality, winequal_white$free_sulfur_dioxide)
+tsd_cor <-  cor(winequal_white$quality, winequal_white$total_sulfur_dioxide)
+d_cor <-  cor(winequal_white$quality, winequal_white$density)
+p_cor <-  cor(winequal_white$quality, winequal_white$pH)
+s_cor <-  cor(winequal_white$quality, winequal_white$sulphates)
+a_cor <-  cor(winequal_white$quality, winequal_white$alcohol)
+
+# putting the correlation coefficients into a table
+tibble(
+  ID = seq(1:11),
+  variable =  c("fixed_acidity", "volatile_acidity", "citric_acid", "residual_sugar", 
+                "chlorides", "free_sulfur_dioxide", "total_sulfur_dioxide",
+                                   "density", "pH", "sulphates", "alcohol"),
+  correlation_coefficient = c(fa_cor, va_cor, ca_cor, rs_cor, c_cor, fsd_cor,
+                             tsd_cor, d_cor, p_cor, s_cor, a_cor)) %>%
+  kable(caption = "Correlation coefficients of 11 variables with quality score")
+```
+
+
+We can then visualise plots of the quality score versus the wine physicochemical properties with the largest correlation coefficient. I've chosen to present graphs for the top three largest correlation coefficients. Figure 4 presents the graph of quality versus alcohol for each wine in the _winequal_white_ dataset. The relationship between the two variables is represented by slope of the regression line.
+
+
+```{r qualv_alcohol, fig.width = 4.25, fig.height = 2.75, fig.cap="The quality score versus percentage of alcohol for each wine in winequal_white", echo=FALSE}
+#  plot quality vs alcohol with a regression line
+
+# define parameters for the regression line, mean, standard deviation 
+# and correlation coefficient
+mu_x <- mean(winequal_white$alcohol)
+mu_y <- mean(winequal_white$quality)
+s_x <- sd(winequal_white$alcohol)
+s_y <- sd(winequal_white$quality)
+r <- a_cor
+
+# use ggplot to look at quality vs alcohol
+winequal_white %>% 
+  ggplot(aes(alcohol, quality)) + 
+  geom_point(alpha = 0.5) + # scatter graph
+  geom_abline(slope = r * s_y/s_x, intercept = mu_y - r * s_y/s_x * mu_x) + # calculate regression line
+  scale_x_continuous(n.breaks = 10) +
+  scale_y_continuous(n.breaks = 10) +
+  ggtitle("Quality vs alcohol") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 10), # set the text size of title 
+        axis.title = element_text(size = 8), # set the text size of axis label
+        axis.text = element_text(size = 8)) # set the text size of axis marks
+
+```
+
+Figure 5 presents the graph of quality versus density for each wine in the _winequal_white_ dataset.
+
+```{r qualv_dens, fig.width = 4.25, fig.height = 2.75, fig.cap="The quality score versus density for each wine in winequal_white", echo=FALSE}
+#  plot quality vs density with a regression line
+
+# define parameters for the regression line, mean, standard deviation 
+# and correlation coefficient
+mu_x <- mean(winequal_white$density)
+mu_y <- mean(winequal_white$quality)
+s_x <- sd(winequal_white$density)
+s_y <- sd(winequal_white$quality)
+r <- d_cor
+
+# use ggplot to plot at quality vs density
+winequal_white %>%
+  ggplot(aes(density, quality)) +
+  geom_point(alpha = 0.5) + # scatter graph
+  geom_abline(slope = r * s_y/s_x, intercept = mu_y - r * s_y/s_x * mu_x) + # calculate regression line
+  scale_x_continuous(n.breaks = 10) +
+  scale_y_continuous(n.breaks = 10) +
+  ggtitle("Quality vs density") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 10), # set the text size of title 
+        axis.title = element_text(size = 8), # set the text size of axis label
+        axis.text = element_text(size = 8)) # set the text size of axis marks
+```
+
+Figure 6 presents the graph of quality versus chlorides for each wine in the _winequal_white_ dataset.
+
+```{r qualv_chl, fig.width = 4.25, fig.height = 2.75, fig.cap="The quality score versus chlorides for each wine in winequal_white", echo=FALSE}
+#  plot quality vs chlorides with a regression line
+
+# define parameters for the regression line, mean, standard deviation 
+# and correlation coefficient
+mu_x <- mean(winequal_white$chlorides)
+mu_y <- mean(winequal_white$quality)
+s_x <- sd(winequal_white$chlorides)
+s_y <- sd(winequal_white$quality)
+r <- cor(winequal_white$quality, winequal_white$chlorides)
+
+# use ggplot to plot at quality vs chlorides
+winequal_white %>%
+  ggplot(aes(chlorides, quality)) +
+  geom_point(alpha = 0.5) +  # scatter graph with 0.5 alpha
+  geom_abline(slope = r * s_y/s_x, intercept = mu_y - r * s_y/s_x * mu_x) + # calculate regression line
+  scale_x_continuous(n.breaks = 10) +
+  scale_y_continuous(n.breaks = 10) +
+  ggtitle("Quality vs chlorides") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 10), # set the text size of title 
+        axis.title = element_text(size = 8), # set the text size of axis label
+        axis.text = element_text(size = 8)) # set the text size of axis marks
+```
+
+Of all three graphs (alcohol, density and chlorides) the regression line for quality vs alcohol has the largest slope, this may indicate a stronger relationship between the variables. When developing the wine quality predictive model we will investigate which variables are needed to provide the most useful model. Noting that the correlation coefficient is a crude measure here, and trial and error may be the best way to test which variables are most useful in the algorithms.
+
+## Machine learning strategy
+
+Table 3 shows the machine learning algorithms that I chose to explore to build the wine quality predictive model. These methods increase in computational complexity and resources. It may be that the first method, generalised linear regression, will be sufficient for the final model. Running a random forest algorithm does take a lot more computational time.
+
+```{r ml_models, echo=FALSE}
+
+# table of characteristics to build into parameters of the machine learning model
+tibble(iteration = c(1,2,3),
+  machine_learning_algorithm = c("Generalised linear regression",
+                              "Regression trees",
+                              "Random forests")) %>%  
+  kable(caption = "Machine learning algorithms to develop wine quality predictive model")
+
+```
+
+### Determing model accuracy
+
+We need a metric to determine the accuracy of the predictions and to evaluate usefulness of the machine learning algorithms. One on the most common evaluation metrics is the root mean square error or RMSE.[@JonaMed] RMSE measures the average difference between a model's actual and predicted values. Mathematically, it is the standard deviation of the differences. The lower the RMSE the less error in the model. 
+
+$$RMSE= \sqrt {\frac{1}{N} \sum_{u,i} \left( \hat{y}_{u,i} - {y}_{u,i} \right) ^2}$$
+
+RMSE can be defined by the following R code:
+
+```{r rmse_function}
+# RMSE written out as an R function.
+# RMSE is the sqrt of the mean of (true_ratings - predicted_ratings) squared 
+RMSE <- function(true_ratings, predicted_ratings){
+  sqrt(mean((true_ratings - predicted_ratings)^2))
+}
+
+```
+
+### Model validation
+
+To develop the wine quality predictive model using machine learning methods, it is best practice to take the _winequal_white_ dataset and split it further into a _winequal_white_(80%) and a _winequal_white_ (20%). This is needed to avoid over-training the data. For each method iteration we will use the train_set to develop the algorithm, then use the test_set to make ratings predictions using the algorithm, with the prediction accuracy evaluated using RMSE.
+
+```{r test_train_sets}
+
+# Create training and test datasets from winequal_white 
+# for use in developing machine learning algorithm
+
+# set the seed with rounding
+set.seed(1, sample.kind="Rounding")
+
+# create the partition index using caret::createDataPartion function
+winequal_test_index <- createDataPartition(y = winequal_white$quality, times = 1,
+                                       p = 0.2, list = FALSE)
+
+# use the partition index to create the train_set and test_set
+winequal_train_set <- winequal_white[-winequal_test_index,] # 80% of winequal_white data
+winequal_test_set <- winequal_white[winequal_test_index,] # 20% of winequal_white data
+```
+
+## Building the predictive model
+
+In developing the final model, We will use the _train_ function from the _caret_ package to train the algorithms. The _train_ function behaves like a wrapper for a variety of machine learning methods, and will come in handy later on with more complex algorithms as it allows for parameter tuning and cross-validation in a sytematic manner.[@DSB_car]
+
+### Generalised linear regression
+
+We will start with a generalised linear regression model to develop a baseline algorithm for the predictive model.[@DSB_ml] Initially we will try just using 5 physicochemical properties as predictors in the model. I have chosen these based on likely prpoerties that will affect the taste. We will use the _winequal_train_set_ to train the algorithm, and the _winequal_test_set_ to make the predictions. The RMSE for just 5 predictors, which is also calculated on the _winequal_test_set_, is 0.7702957. 
+
+
+```{r glm_5pred}
+# Baseline model with generalised linear regression (glm) with 5 predictors
+
+# using caret::train to calculate the algorithm
+# predict quality using 5 predictors
+train_5pred_glm <- train(quality ~  alcohol + chlorides + residual_sugar + 
+                           volatile_acidity + 
+                           total_sulfur_dioxide, 
+                         method = "glm",
+                         data = winequal_train_set)
+
+# use predict function to make quality score predictions using trained algorithm
+predict_train_5pred_glm <- predict(train_5pred_glm, winequal_test_set, type = "raw")
+
+# calculate RMSE to evaluate the algorithm 
+rmse_5pred_glm <- RMSE(predict_train_5pred_glm, winequal_test_set$quality)
+# print RMSE
+rmse_5pred_glm
+```
+
+
+Next we will test if using more predictors in the model will improve the RMSE. We will choose the 8 most likely properties as predictors based on their descriptions in table 1, and whether these are most likely to affect wine taste. Here there has been an improvement in algorithm, as the RMSE using 8 predictors has improved by decreasing to 0.769237.
+
+```{r glm_8pred}
+# Baseline model with generalised linear regression (glm) with 8 predictors
+
+# using caret::train to calculate the algorithm
+# predict quality using 8 predictors
+train_8pred_glm <- train(quality ~  alcohol + chlorides + residual_sugar + 
+                           citric_acid + volatile_acidity + fixed_acidity + 
+                           total_sulfur_dioxide + sulphates, 
+                         method = "glm", # use glm algorithm
+                         data = winequal_train_set) # on winequal train set
+
+# use predict function to make quality score predictions using trained algorithm
+predict_train_8pred_glm <- predict(train_8pred_glm, winequal_test_set, type = "raw")
+
+# calculate RMSE to evaluate the algorithm 
+rmse_8pred_glm <- RMSE(predict_train_8pred_glm, winequal_test_set$quality)
+# print RMSE
+rmse_8pred_glm
+```
+
+Let's see what happens when we use all 11 physicochemical properties of wine as predictors in the glm algorithm. Here, the  performance of the algorithm has been improved further by using all the available properties of wine as predictors. This makes since considering that all 11 of the properties of wine had some value for the correlation coefficient with the wine quality score (table 2).
+
+```{r glm_allpred}
+# Baseline model with generalised linear regression (glm) with all predictors
+
+# using caret::train to calculate the algorithm
+train_allpred_glm <- train(quality ~  ., # predict quality using all other predictors
+                           method = "glm", # use glm algorithm
+                           data = winequal_train_set) # on winequal train set
+
+# use predict function to make quality score predictions using trained algorithm
+predict_train_allpred_glm <- predict(train_allpred_glm, winequal_test_set, type = "raw")
+
+# calculate RMSE to evaluate the algorithm 
+rmse_allpred_glm <- RMSE(predict_train_allpred_glm, winequal_test_set$quality)
+# print RMSE
+rmse_allpred_glm
+```
+
+
+By reducing the number of predictors in the model down to 5, this increases the RMSE (0.770295) compared to the glm model with 8 predictors. However, just 5 predictors is still more accurate than using all 11 predictors, as measured by RMSE. We will use this information going forward when investigating more computationally complex algorithms.
+
+#### Summary of GLM models
+
+Table 4 depicts the results of the generalised linear model (GLM) performance as measured by RMSE. The algorithm using all chemical properties of wine as predictors was the best. Therefore, for the subsequent machine learning methods I will only develop algorithms using all 11 predictors.
+
+```{r summary_glm, echo=FALSE}
+#make table of RMSES for glm 
+tibble(iteration = c(1:3),
+       model_type = c("GLM with 11 predictors",
+                      "GLM with 8 predictors",
+                      "GLM with 5 predictors"),
+       RMSE = c(rmse_allpred_glm, rmse_8pred_glm, rmse_5pred_glm)) %>%
+  kable(caption = "Generalised linear model iterations in order of best performance measured by RMSE")
+
+```
+
+
+### Regression trees
+
+The next machine learning method we'll look at is regression trees.[@DSB_ml] This is a decision making algorithm which can be used to predict continuous valued outputs. The algorithm repeatedly splits the dataset into parts by selecting partitions based on predictors and at certain nodes that minimise the RMSE.[@AshMed] The idea is that the leaf node represents a predicted value for the target variable; in this case, the predicted quality score.  
+
+#### No tuning
+
+First we'll build a simple regression tree using the _rpart_ function from the rpart package to fit a model without tuning any parameters. We'll start with using all 11 predictors as shown with the code below. Here the RMSE of 0.759828 is a bit higher than that of the best GLM algorithm. However, we can improve the regression tree further with tuning the parameters.  
+
+
+```{r rt_allpred, cache=TRUE}
+
+# fit regression tree model using all predictors using rpart function
+fit_regression_tree <- rpart(quality ~ ., data = winequal_train_set)
+
+# plot the regression tree model
+plot(fit_regression_tree, margin = 0.1)
+text(fit_regression_tree, cex = 0.75)
+
+# use predict function to make predictions using fitted model  
+predict_regression_tree <- predict(fit_regression_tree, winequal_test_set)
+
+# calculate RMSE using caret::RMSE
+rmse_rt_allpreds <- RMSE(predict_regression_tree, winequal_test_set$quality)
+# print RMSE
+rmse_rt_allpreds
+
+```
+
+#### Tuning and cross validation
+
+To avoid overfitting the model and to optimise the parameters we can improve the regression tree algorithm performance with caret::train. This will allow us to use cross validation to tune the model. The most common parameters to tune for a regression tree are _cp_, which is the complexity parameter, and _maxdepth_, which is the maximum depth of any node of the final tree.[@DS_prac] The train function allows training of both these parameters, with the method _rpart_ to tune _cp_ and the method _rpart2_ to tune _maxdepth_.[@DS_prac]  
+
+First we will tune _cp_ with _rpart_. As the cross validation is a random process, we will also set a seed for reproducibility. I've chosen to cross validate with 10 samples and tune _cp_ with a sequence 25 values between 0 and 0.05. Here, the RMSE is 0.752454.
+
+```{r rt_cptune, fig.width = 4.25, fig.height = 2.75, cache=TRUE}
+# Fit the regression tree model on the training set
+# With tuning  the cp parameter and cross validation
+
+#set seed for reproducibility
+set.seed(1, sample.kind = "Rounding")
+
+# use caret:train to tune cp 
+train_rpart_cv10 <- train(
+  quality ~., # all 11 predictors
+  data = winequal_train_set, # train set
+  method = "rpart", # using rpart for cp
+  trControl = trainControl("cv", number = 10), # cross validation of 10 samples
+  tuneGrid = data.frame(cp = seq(0, 0.05, len = 25))) # sequence of 25 cp to test
+
+# plot the tuning of RMSE vs cp
+ggplot(train_rpart_cv10) +
+   theme_minimal()
+
+# print the value of best cp with lowest RMSE
+train_rpart_cv10$bestTune
+
+# use tuned model to predict quality against test set
+predict_rpart_cv10 <- predict(train_rpart_cv10, winequal_test_set)
+
+# calculate RMSE
+rmse_rpart_cv10 <- RMSE(predict_rpart_cv10, winequal_test_set$quality)
+# print RMSE
+rmse_rpart_cv10
+```
+
+Next we will tune _maxdepth_ using _rpart2_ using similar methods as for _cp_. Here, the RMSE is 0.759828.
+
+```{r rt_maxdtune, fig.width = 4.25, fig.height = 2.75, cache=TRUE}
+# Fit the regression tree model on the training set
+# With tuning the maxdepth parameter and cross validation
+
+#set seed for reproducibility
+set.seed(1, sample.kind = "Rounding")
+
+# use caret:train to tune maxdepth
+train_rpart2_cv10 <- train(
+  quality ~., # all 11 predictors
+  data = winequal_train_set, # train set
+  method = "rpart2", # rpart2 for tuning maxdepth
+  tuneLength = 12, # 12 values
+  trControl = trainControl("cv", number = 10)) # cross validation of 10 samples
+
+# plot the tuning of RMSE vs maxdepth
+ggplot(train_rpart2_cv10) +
+  theme_minimal()
+
+# print the best value of maxdepth with lowest RMSE 
+train_rpart2_cv10$bestTune
+
+# use tuned model to predict quality against test set
+predict_rpart2_cv10 <- predict(train_rpart2_cv10, winequal_test_set)
+
+# calculate RMSE
+rmse_rpart2_cv10 <- RMSE(predict_rpart2_cv10, winequal_test_set$quality)
+# print RMSE
+rmse_rpart2_cv10
+```
+
+
+Then we put both tuned parameters into the rpart function to fit the tuned regression tree model. With this final regression tree model the RMSE is the lowest so far at 0.751895.
+
+```{r rpart_tuned, cache =TRUE}
+# fit the regression tree model against the train set using 
+# the tuned cp and maxdepth parameters from above
+
+fit_rpart_tuned <- rpart(quality ~ ., 
+                           data = winequal_train_set, 
+                           maxdepth = train_rpart2_cv10$bestTune$maxdepth, 
+                           cp = train_rpart_cv10$bestTune$cp)
+
+# plot the tuned regression tree model
+plot(fit_rpart_tuned, margin = 0.1)
+text(fit_rpart_tuned, cex = 0.75)
+
+# use tuned fitted model to predict quality against test set
+predict_rpart_tuned <- predict(fit_rpart_tuned, winequal_test_set)
+
+# calculate RMSE
+rmse_rpart_tuned <- RMSE(predict_rpart_tuned, winequal_test_set$quality)
+# print RMSE
+rmse_rpart_tuned
+
+```
+
+### Random forests
+
+The last machine learning method we will investigate for our wine quality score predictive model is Random forests.[@DSB_ml] These random forest algorithms are a popular machine learning approach as the techniques they employ address the downsides of regression trees.[@DSB_ml] Random forest methods average multiple regression trees to make a forest of trees with randomness, thereby improving prediction performance.
+
+#### No tuning or cross validation
+
+First we will use the randomForest function from the randomForest package, to provide a baseline model for this algorithm. Here, we plot the fitted model which shows that the error has minimised around 400 trees. We then use the fitted model to predict the quality score against the test set. The RMSE for this model of 0.598826 is the lowest for far. Therefore, even without tuning the parameter of the model the random forest algorithm has the best predictive performance.  
+
+```{r rf, fig.width = 4.25, fig.height = 4, cache=TRUE}
+
+# initial random forest model with no tuning
+
+# set the seed for reproducibility
+set.seed(1, sample.kind = "Rounding")
+
+# using randomForest function to fit the model against train data
+fit_random_forest <- randomForest(quality ~., data = winequal_train_set)
+
+# plot the fitted model
+plot(fit_random_forest)
+
+# use fitted model to predict quality against test set
+predict_random_forest <- predict(fit_random_forest, winequal_test_set)
+
+# calculate RMSE
+rmse_random_forest <- RMSE(predict_random_forest, winequal_test_set$quality)
+# print RMSE
+rmse_random_forest
+
+```
+
+Now we will look to see if tuning the parameters of the random forest algorithm will improve performance. For this we will once again use the caret package.[@DSB_car] There are two parameters that are most likely to have the biggest affect on the performance of our random forest model [@JasMlm], which are: 
+
+1) _mtry_ - the number of variables randomly sampled as candidates at each split, and 
+2) _ntree_ - the numbers of trees to grow
+
+Only _mtry_ can be tuned with train::caret, and the value of _ntree_ is largely limited by computational time.[@JasMlm]. Therefore, I set up a series of _mtry_ tuning experiments with different values for _ntree_ and 5 and 10-fold cross validation to test how long the algorithm would take to run (table 5). Then I fit a random forest model using the randomForest function with each tuned _mtry_, used the predict function against the test set, and calculated the RMSE. This way I could decide on the best trade off for computational cost to run the algorithm compared to model performance. 
+
+```{r tuning_time, echo=FALSE}
+
+tibble(iteration = (seq(1:4)),
+       cross_validation = c("10-fold", "5-fold", "5-fold", "5-fold"),
+       mtry = c("seq(1, 10, 1)", "seq(1, 6, 1)", "seq(1, 6, 1)", "seq(1, 6, 1)"),
+       ntree = c("500", "300", "400", "500"),
+       computational_time = c("22 mins", "3.5 mins", "4.5 mins", "5.5 mins"),
+       best_mtry = c("4", "2", "3", "5"),
+       RMSE = c("0.597867", "0.598555", "0.598502", "0.601563")) %>% 
+kable(caption = "Random forest tuning experiments testing computational time vs algorithm performance")
+```
+
+The results of these experiments are depicted in table 5. Here, you can see that the random forest model with the lowest RMSE (0.597867) and therefore best performance was iteration 1, using _ntree_ of 500, and 10-fold cross validation to get _mtry_ of 4. However, tuning _mtry_ in iteration 1 took 22 minutes, and is not practical to include in this report. The model with the next best performance according to the RMSE measure used _mtry_ from iteration 3, which took 4.5 minutes to tune. Therefore I chose this to be the final model and have included the code for this random forest tuning and model fitting below (note that this code will take about 5-6 minutes to run, including tuning _mtry_ and fitting the model). 
+
+
+```{r rf_tuned, fig.width = 4.25, fig.height = 4, cache=TRUE}
+# random forest algorithm tuning mtry, 4.5 mins to tune mtry, 1 min to fit model
+
+# set the seed for reproducibility
+set.seed(1, sample.kind = "Rounding")
+
+# use 5 fold cross validation
+control <- trainControl(method="cv", number = 5)
+# assign the values of mtry to tune for
+grid <- data.frame(mtry = seq(1, 6, 1))
+# caret::train
+train_rf_4 <-  train(quality ~., # predict quality 
+                     method = "rf", # using random forest algorithm
+                     data = winequal_train_set, # on the train set
+                     ntree = 400, # number of trees
+                     trControl = control, # cross validation
+                     tuneGrid = grid) # tune for mtry
+
+# print the tuning of the model, RMSE, Rsquared and MAE
+train_rf_4
+
+# print best tuned mtry that minimises RMSE
+train_rf_4$bestTune$mtry
+
+# fit the randomForest model with best tuned mtry
+fit_rf_4 <- randomForest(quality ~., data = winequal_train_set,
+                         mtry = train_rf_4$bestTune$mtry)
+
+# plot the best tuned fitted model
+plot(fit_rf_4)
+
+# use tuned fitted model to predict quality against test set
+predict_fit_rf_4 <- predict(fit_rf_4, winequal_test_set)
+
+# calculate RMSE
+rmse_rf_4 <- RMSE(predict_fit_rf_4, winequal_test_set$quality)
+# print RMSE
+rmse_rf_4 
+
+```
+
+# Results
+
+We have developed a random forest algorithm for the final wine quality score predictive model. The RMSEs are shown in table 6 for each the best iteration of each machine learning method investigated. Here, you can see that the Random forest algorithm clearly outperforms the other two machine learning methods, as it has the lowest RMSE.
+
+```{r final_results, echo=FALSE}
+# table of best RMSEs for each machine learning method
+tibble(iteration = c(1,2,3),
+  machine_learning_algorithm = c("Generalised linear regression",
+                              "Regression trees",
+                              "Random forests"),
+  parameters = c("all predictors", "cp = 0.002, maxdepth = 5", "mtry = 3, ntree = 400"),
+  RMSE = c(rmse_allpred_glm, rmse_rpart_tuned, rmse_rf_4)) %>%  
+  kable(caption = "Performance of machine learning algorithms for wine quality predictive model as measured by RMSE")
+```
+
+Now that we have the final model, we can apply this to the whole of the white wine quality dataset, _winequal_white_.
+
+```{r final_model, cache=TRUE}
+
+#Final model is the random forest as it has the lowest RMSE
+
+#Therefore applying the model to the dataset:
+fit_final_model_rf <- randomForest(quality ~., data = winequal_white,
+                                   mtry = train_rf_4$bestTune$mtry)
+  
+  
+# adding predicted quality score to the whole white wine dataset
+final_model_rf <- winequal_white %>% 
+  mutate(predict_quality = predict(fit_final_model_rf, winequal_white))
+
+```
+
+A plot of the actual quality vs predicted quality score for each wine in the _winequal_white_ dataset is shown in figure 7. Here we can see that the range of predicted quality scores is smaller than the actual range of quality. Since we performed regression modelling on the dataset, we got back continuous predictive scores, even though the actual scores were integers. We can see that the predictive scores have a spread of about 1. Therefore, the random forest final model has provided a reasonable predictive model of wine quality scores.
+
+```{r pqual_aqual, fig.width = 4.25, fig.height = 4.25, fig.cap="Actual quality scores vs predicted quality scores for each wine in the dataset", echo=FALSE}
+
+# use ggplot to plot the actual quality scores vs the predicted quality scores
+final_model_rf %>% ggplot(aes(predict_quality, quality)) + # x-axis is predicted quality
+  geom_point(alpha = 0.5) + # plot scattergraph
+  scale_x_continuous(n.breaks = 15) + # 7 x-axis breaks
+  scale_y_continuous(n.breaks = 7) + # 15 y-axis breaks
+  ggtitle("Actual quality vs predicted quality") + # plot title
+  ylab("actual quality score") + # y label
+  xlab("predicted quality score") + # x label
+  theme_minimal() + # set theme
+  theme(plot.title = element_text(size = 10), # set the text size of title 
+        axis.title = element_text(size = 8), # set the text size of axis label
+        axis.text = element_text(size = 8)) # set the text size of axis marks
+
+
+```
+
+
+# Conclusion
+
+I have explored machine learning methods to develop a wine quality score predictive model using the white wine quality datset. I found that the random forest algorithm provided the best performance using RMSE as the comparative metric. Due to scope creep, I limited this project to only looking at three algorithms. However, if I had more time and resources available I would continue this project by looking at additional algorithms, such as Bayesian methods[@DSB_ml] or support vector regression[@TasMed].
+
+# References
+
